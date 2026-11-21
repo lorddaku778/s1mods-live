@@ -95,9 +95,8 @@ class AdbManager(private val context: Context) {
         // 2. Write Settings
         client.shell("appops set $pkg WRITE_SETTINGS allow")
 
-        // 3. Accessibility Service
-        client.shell("settings put secure enabled_accessibility_services $svc")
-        client.shell("settings put secure accessibility_enabled 1")
+        // 3. Accessibility Service (merged with others, e.g. Open Boot, instead of overwriting)
+        addAccessibilityService(client, svc)
 
         // 4. Launch Balls Main Activity
         client.shell("am start -n $pkg/.ui.MainActivity")
@@ -105,6 +104,24 @@ class AdbManager(private val context: Context) {
         // 5. Return to Dashboard Home
         client.shell("am start -n com.olaelectric.hmiclient/.MainActivity")
         client.shell("input keyevent 3")
+    }
+
+    /** Adds a service to the enabled accessibility services without dropping the ones already on. */
+    private fun addAccessibilityService(client: Dadb, service: String) {
+        val cur = client.shell("settings get secure enabled_accessibility_services").allOutput.trim()
+        val list = if (cur.isBlank() || cur == "null") emptyList() else cur.split(":").filter { it.isNotBlank() }
+        if (!list.contains(service)) {
+            client.shell("settings put secure enabled_accessibility_services ${(list + service).joinToString(":")}")
+        }
+        client.shell("settings put secure accessibility_enabled 1")
+    }
+
+    /**
+     * Switches on the Open Boot tap service (it taps the trunk button when the Open Boot app is launched).
+     */
+    suspend fun enableOpenBootService() = withContext(Dispatchers.IO) {
+        val client = activeDadb ?: throw IllegalStateException("ADB not connected")
+        addAccessibilityService(client, "com.asjohn720.openboot/com.asjohn720.openboot.TapService")
     }
 
     /**

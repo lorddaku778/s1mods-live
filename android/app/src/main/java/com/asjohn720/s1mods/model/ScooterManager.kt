@@ -52,6 +52,14 @@ enum class ModApp(
         packageName = "com.asjohn720.musicmod",
         isMandatory = false,
         description = "Ad-free music"
+    ),
+    OPENBOOT(
+        id = "openboot",
+        displayName = "Open Boot",
+        assetFileName = "openboot.apk",
+        packageName = "com.asjohn720.openboot",
+        isMandatory = false,
+        description = "Open the boot from the Ball's app drawer"
     )
 }
 
@@ -232,6 +240,10 @@ class ScooterManager(private val context: Context) {
             log("\n[3/5] Installing selected Mod APKs...")
 
             for (app in selectedApps) {
+                if (!assetExists(app.assetFileName)) {
+                    log("[!] ${app.displayName}: APK is not bundled in this build, skipping.")
+                    continue
+                }
                 val isInstalled = adbManager.isPackageInstalled(app.packageName)
                 if (isInstalled) {
                     log("[*] ${app.displayName} already installed on vehicle. Clean uninstalling (${app.packageName})...")
@@ -250,6 +262,12 @@ class ScooterManager(private val context: Context) {
                 log("[*] Configuring Balls Navigation (Overlay, Settings & Accessibility)...")
                 adbManager.grantBallPermissions()
                 log("[+] Balls Navigation permissions granted & initialized.")
+            }
+
+            if (selectedApps.contains(ModApp.OPENBOOT)) {
+                log("[*] Switching on the Open Boot tap service...")
+                adbManager.enableOpenBootService()
+                log("[+] Open Boot enabled. Set the button position from the Cursor tab (Set boot button).")
             }
 
             if (selectedApps.contains(ModApp.ANDROID_AUTO)) {
@@ -278,6 +296,13 @@ class ScooterManager(private val context: Context) {
         } finally {
             isSetupRunning.value = false
         }
+    }
+
+    private fun assetExists(name: String): Boolean = try {
+        context.assets.open(name).close()
+        true
+    } catch (_: Exception) {
+        false
     }
 
     /**
@@ -382,6 +407,11 @@ class ScooterManager(private val context: Context) {
                 adbManager.grantAndroidAutoPermissions()
                 log("[+] Android Auto permissions configured.")
             }
+            ModApp.OPENBOOT -> {
+                log("[*] Switching on the Open Boot tap service...")
+                adbManager.enableOpenBootService()
+                log("[+] Open Boot enabled. Set the button position from the Cursor tab (Set boot button).")
+            }
             ModApp.MUSIC -> {
                 log("[*] Configuring Music Mod permissions...")
                 try {
@@ -478,26 +508,49 @@ class ScooterManager(private val context: Context) {
     }
 
     /**
-     * Opens the underseat storage ("boot") lock.
-     * Returns false without sending anything if BOOT_OPEN_COMMAND hasn't
-     * been filled in yet, so the button fails loudly in the log instead of
-     * silently sending an empty command.
+     * Opens the underseat storage ("boot"). Launches the Open Boot app on the scooter, which brings the
+     * dashboard to the front and taps the boot button at the position saved with [setBootButton].
+     * If BOOT_OPEN_COMMAND is ever filled in, that root command is used instead.
      */
     suspend fun openBootSpace(): Boolean = withContext(Dispatchers.IO) {
-        if (BOOT_OPEN_COMMAND.isBlank()) {
-            log("[!] Boot-open command isn't configured yet — set BOOT_OPEN_COMMAND in ScooterManager.kt.")
-            return@withContext false
+        try {
+            val client = ensureGrpc()
+            if (BOOT_OPEN_COMMAND.isNotBlank()) {
+                log("[*] Opening boot/seat storage...")
+                val (exitCode, output) = client.shell(BOOT_OPEN_COMMAND, 10L)
+                val success = exitCode in 0..1
+                log(if (success) "[+] Boot open command sent." else "[!] Boot open command failed (exit $exitCode): $output")
+                return@withContext success
+            }
+            log("[*] Launching Open Boot on the scooter...")
+            val (_, out) = client.shell("am start -n com.asjohn720.openboot/.OpenBootActivity", 15L)
+            val failed = out.contains("Error", ignoreCase = true) || out.contains("does not exist", ignoreCase = true)
+            if (failed) {
+                log("[!] Open Boot is not installed. Install it from the Apps tab first. ($out)")
+                false
+            } else {
+                log("[+] Open Boot launched (it presses the saved boot button).")
+                true
+            }
+        } catch (e: Exception) {
+            log("[!] Could not open boot: ${e.message}")
+            false
         }
-        log("[*] Opening boot/seat storage...")
+    }
+
+    /**
+     * Saves where the boot button is on the dashboard, as 1/1000 of the screen width / height.
+     * Stored in Settings.Global so the Open Boot app on the scooter can read it.
+     */
+    suspend fun setBootButton(xPermille: Int, yPermille: Int): Boolean = withContext(Dispatchers.IO) {
+        val x = xPermille.coerceIn(0, 1000)
+        val y = yPermille.coerceIn(0, 1000)
         val client = ensureGrpc()
-        val (exitCode, output) = client.shell(BOOT_OPEN_COMMAND, 10L)
-        val success = exitCode in 0..1
-        if (success) {
-            log("[+] Boot open command sent.")
-        } else {
-            log("[!] Boot open command failed (exit $exitCode): $output")
-        }
-        success
+        val (c1, _) = client.shell("settings put global s1_boot_x $x", 10L)
+        val (c2, _) = client.shell("settings put global s1_boot_y $y", 10L)
+        val ok = c1 in 0..1 && c2 in 0..1
+        log(if (ok) "[+] Boot button saved at $x/1000, $y/1000" else "[!] Could not save the boot button position")
+        ok
     }
 
     /**

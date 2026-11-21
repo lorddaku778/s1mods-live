@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "S1Mods"
 include(":app")
+include(":openboot")

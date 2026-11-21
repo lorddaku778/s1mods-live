@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Open Boot</string>
+    <string name="service_description">Taps the boot (trunk) button on the dashboard when you open the Open Boot app.</string>
+</resources>

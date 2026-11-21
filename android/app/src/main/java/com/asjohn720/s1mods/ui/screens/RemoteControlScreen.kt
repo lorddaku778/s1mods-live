@@ -2,6 +2,7 @@ package com.asjohn720.s1mods.ui.screens
 
 import android.os.Handler
 import android.os.Looper
+import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenRotation
@@ -33,6 +35,7 @@ import com.asjohn720.s1mods.model.ScooterManager
 import com.asjohn720.s1mods.ui.theme.*
 import dadb.Dadb
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private class MirrorParams(
@@ -95,6 +98,8 @@ private suspend fun prepareMirror(manager: ScooterManager, quality: Int): Mirror
 @Composable
 private fun LiveMirror(manager: ScooterManager, onSnapshot: () -> Unit) {
     val main = remember { Handler(Looper.getMainLooper()) }
+    val scope = rememberCoroutineScope()
+    var calibrating by remember { mutableStateOf(false) }
     val fullscreen by manager.mirrorFullscreen.collectAsState()
 
     var quality by remember { mutableIntStateOf(1) }
@@ -207,6 +212,18 @@ private fun LiveMirror(manager: ScooterManager, onSnapshot: () -> Unit) {
                     }
                 }
                 Spacer(modifier = Modifier.weight(1f))
+                TextButton(onClick = {
+                    calibrating = !calibrating
+                    status = if (calibrating) {
+                        "Set boot button: go to the screen that shows the boot button, then tap it once on the picture."
+                    } else {
+                        "Live"
+                    }
+                }) {
+                    Icon(Icons.Default.Luggage, contentDescription = null, tint = if (calibrating) AccentMint else TextMuted, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (calibrating) "Tap the button..." else "Set boot button", fontSize = 12.sp, color = if (calibrating) AccentMint else TextMuted)
+                }
                 TextButton(onClick = onSnapshot) {
                     Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = TextMuted, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(4.dp))
@@ -255,7 +272,27 @@ private fun LiveMirror(manager: ScooterManager, onSnapshot: () -> Unit) {
                 update = { v ->
                     v.setOnTouchListener { view, ev ->
                         view.parent?.requestDisallowInterceptTouchEvent(true)
-                        params?.injector?.onTouch(ev, view.width, view.height)
+                        if (calibrating) {
+                            // Boot-button setup: this tap is only recorded, it is NOT sent to the scooter.
+                            if (ev.actionMasked == MotionEvent.ACTION_UP && view.width > 0 && view.height > 0) {
+                                val px = (ev.x / view.width * 1000).toInt().coerceIn(0, 1000)
+                                val py = (ev.y / view.height * 1000).toInt().coerceIn(0, 1000)
+                                calibrating = false
+                                scope.launch {
+                                    status = try {
+                                        if (manager.setBootButton(px, py)) {
+                                            "Boot button saved at ${px / 10}% across, ${py / 10}% down. Launch Open Boot to use it."
+                                        } else {
+                                            "Could not save the boot button position."
+                                        }
+                                    } catch (e: Exception) {
+                                        "Could not save: ${e.message ?: e.javaClass.simpleName}"
+                                    }
+                                }
+                            }
+                        } else {
+                            params?.injector?.onTouch(ev, view.width, view.height)
+                        }
                         true
                     }
                 }

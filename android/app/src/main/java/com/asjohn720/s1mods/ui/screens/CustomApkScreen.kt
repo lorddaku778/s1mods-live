@@ -604,6 +604,77 @@ fun CustomApkScreen(manager: ScooterManager) {
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                // Open Boot (taps the trunk button)
+                ModAppRow(
+                    app = ModApp.OPENBOOT,
+                    icon = Icons.Default.Luggage,
+                    size = "< 1 MB",
+                    desc = "Open the boot from the Ball drawer",
+                    isInstalled = installedPackages.contains(ModApp.OPENBOOT.packageName),
+                    actionInProgress = activeAppAction,
+                    onOpen = {
+                        coroutineScope.launch {
+                            activeAppAction = "${ModApp.OPENBOOT.id}:opening"
+                            try {
+                                val ok = manager.openApp(ModApp.OPENBOOT.packageName, ModApp.OPENBOOT.displayName)
+                                if (ok) {
+                                    Toast.makeText(context, "Open Boot launched", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                activeAppAction = null
+                            }
+                        }
+                    },
+                    onInstall = {
+                        pendingConfirmation = AppConfirmation(
+                            title = "Install Open Boot?",
+                            message = "It is switched on automatically. Then set the button position in the Cursor tab.",
+                            confirmButtonText = "Install",
+                            isDestructive = false
+                        ) {
+                            coroutineScope.launch {
+                                activeAppAction = "${ModApp.OPENBOOT.id}:installing"
+                                try {
+                                    manager.installSingleModApp(ModApp.OPENBOOT)
+                                    Toast.makeText(context, "Open Boot installed and switched on!", Toast.LENGTH_SHORT).show()
+                                    refreshAllData()
+                                } catch (e: Exception) {
+                                    manager.log("[!] Install failed: ${e.message}")
+                                    Toast.makeText(context, "Install failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    activeAppAction = null
+                                }
+                            }
+                        }
+                    },
+                    onUninstall = {
+                        pendingConfirmation = AppConfirmation(
+                            title = "Uninstall Open Boot?",
+                            message = "It will be removed from the scooter.",
+                            confirmButtonText = "Uninstall",
+                            isDestructive = true
+                        ) {
+                            coroutineScope.launch {
+                                activeAppAction = "${ModApp.OPENBOOT.id}:uninstalling"
+                                try {
+                                    manager.uninstallPackage(ModApp.OPENBOOT.packageName)
+                                    Toast.makeText(context, "Open Boot uninstalled", Toast.LENGTH_SHORT).show()
+                                    refreshAllData()
+                                } catch (e: Exception) {
+                                    manager.log("[!] Uninstall failed: ${e.message}")
+                                    Toast.makeText(context, "Uninstall failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    activeAppAction = null
+                                }
+                            }
+                        }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 // OpenPlay (CarPlay)
                 val carPlayApp = OnlineAppCatalog.carPlayApp
                 val carPlayFile = remember(carPlayApp.fileName) {
