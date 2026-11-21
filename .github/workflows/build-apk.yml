@@ -14,12 +14,21 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
+      - name: Build Open Boot APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew :openboot:assembleDebug --stacktrace
+      - name: Bundle Open Boot into S1Mods
+        run: cp android/openboot/build/outputs/apk/debug/openboot-debug.apk android/app/src/main/assets/openboot.apk
+      - name: Build S1Mods APK
+        working-directory: android
+        run: ./gradlew :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: S1Mods-live-mirror-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenBoot-apk
+          path: android/openboot/build/outputs/apk/debug/openboot-debug.apk
