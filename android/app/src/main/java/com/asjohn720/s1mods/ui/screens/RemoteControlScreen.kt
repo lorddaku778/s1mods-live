@@ -50,8 +50,8 @@ private class MirrorParams(
 )
 
 private val QUALITY_NAMES = listOf("Fast", "Balanced", "Sharp")
-private val QUALITY_MAX_SIDE = intArrayOf(800, 1024, 1280)
-private val QUALITY_BITRATE = intArrayOf(3_000_000, 5_000_000, 8_000_000)
+private val QUALITY_MAX_SIDE = intArrayOf(640, 800, 1024)
+private val QUALITY_BITRATE = intArrayOf(1_500_000, 3_000_000, 5_000_000)
 
 /**
  * Live screen mirror of the scooter display with real-time touch, multi-touch and swipe.
