@@ -14,8 +14,10 @@ import dadb.Dadb
  *   scooter: screenrecord --output-format=h264 -  ->  raw ADB "exec:" stream (no pty, binary safe)
  *   phone:   AnnexBAssembler -> MediaCodec (hardware, low-latency) -> SurfaceView, rendered immediately
  *
- * No frame queue is kept: if the decoder has no free input buffer the frame is dropped
- * instead of building up latency.
+ * Frames are never dropped (dropping a P-frame corrupts the picture until the next keyframe,
+ * which shows as a green screen). Instead every frame is decoded but only the newest one is
+ * drawn, and if the decoder or network falls far behind the stream is restarted to get a fresh
+ * keyframe.
  */
 class MirrorSession(
     private val dadb: Dadb,
@@ -34,6 +36,7 @@ class MirrorSession(
     private var flushThread: Thread? = null
 
     @Volatile private var gotKey = false
+    @Volatile private var resync = false
     private var ptsUs = 0L
     private val assembler = AnnexBAssembler { data, key -> onAccessUnit(data, key) }
 
@@ -93,9 +96,17 @@ class MirrorSession(
                 try { s.close() } catch (_: Exception) {}
             } catch (e: Exception) {
                 if (!running) return
-                onStatus("Stream error: ${e.message ?: e.javaClass.simpleName}")
+                if (!resync) onStatus("Stream error: ${e.message ?: e.javaClass.simpleName}")
             }
             if (!running) return
+
+            if (resync) {
+                // Deliberate restart to clear a backlog: stop the old capture, then reconnect.
+                resync = false
+                try { dadb.shell("pkill screenrecord") } catch (_: Exception) {}
+                try { Thread.sleep(250) } catch (_: InterruptedException) { return }
+                continue
+            }
 
             val gotVideo = assembler.unitsEmitted > before
             if (gotVideo && SystemClock.elapsedRealtime() - startedAt > 5000) {
@@ -129,8 +140,13 @@ class MirrorSession(
         }
         val c = codec ?: return
         try {
-            val idx = c.dequeueInputBuffer(15_000)
-            if (idx < 0) return // decoder busy: drop rather than add latency
+            val idx = c.dequeueInputBuffer(250_000)
+            if (idx < 0) {
+                // Decoder is far behind. Never drop a single frame (that corrupts the picture);
+                // restart the stream so the next frame is a fresh keyframe.
+                requestResync()
+                return
+            }
             val ib = c.getInputBuffer(idx) ?: return
             ib.clear()
             if (ib.capacity() < data.size) {
@@ -145,25 +161,45 @@ class MirrorSession(
         }
     }
 
+    private fun requestResync() {
+        if (resync) return
+        resync = true
+        gotKey = false
+        try { stream?.close() } catch (_: Exception) {}
+    }
+
+    private fun handleFormat(c: MediaCodec) {
+        val f = c.outputFormat
+        var w = f.getInteger(MediaFormat.KEY_WIDTH)
+        var h = f.getInteger(MediaFormat.KEY_HEIGHT)
+        if (f.containsKey("crop-left") && f.containsKey("crop-right") &&
+            f.containsKey("crop-top") && f.containsKey("crop-bottom")
+        ) {
+            w = f.getInteger("crop-right") - f.getInteger("crop-left") + 1
+            h = f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1
+        }
+        onSize(w, h)
+    }
+
     private fun drainLoop(c: MediaCodec) {
         val info = MediaCodec.BufferInfo()
         while (running) {
             try {
                 val i = c.dequeueOutputBuffer(info, 10_000)
                 when {
-                    i >= 0 -> c.releaseOutputBuffer(i, true) // render right now
-                    i == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        val f = c.outputFormat
-                        var w = f.getInteger(MediaFormat.KEY_WIDTH)
-                        var h = f.getInteger(MediaFormat.KEY_HEIGHT)
-                        if (f.containsKey("crop-left") && f.containsKey("crop-right") &&
-                            f.containsKey("crop-top") && f.containsKey("crop-bottom")
-                        ) {
-                            w = f.getInteger("crop-right") - f.getInteger("crop-left") + 1
-                            h = f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1
+                    i >= 0 -> {
+                        // Decode everything, but draw only the newest ready frame.
+                        var latest = i
+                        while (true) {
+                            val next = c.dequeueOutputBuffer(info, 0)
+                            if (next == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) { handleFormat(c); continue }
+                            if (next < 0) break
+                            c.releaseOutputBuffer(latest, false)
+                            latest = next
                         }
-                        onSize(w, h)
+                        c.releaseOutputBuffer(latest, true)
                     }
+                    i == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> handleFormat(c)
                 }
             } catch (_: IllegalStateException) {
                 return
