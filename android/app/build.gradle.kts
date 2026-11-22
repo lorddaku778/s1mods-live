@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.asjohn720.s1mods"
+    namespace = "com.lorddaku.s1mods"
     compileSdk {
         version = release(37) {
             minorApiLevel = 1
@@ -12,7 +12,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.asjohn720.s1mods"
+        applicationId = "com.lorddaku.s1mods"
         minSdk = 26
         targetSdk = 35
         versionCode = 5
@@ -21,8 +21,8 @@ android {
         vectorDrawables.useSupportLibrary = true
 
         // GitHub repo that holds the public Releases used for update checks.
-        buildConfigField("String", "GIT_OWNER", "\"Asjohn720\"")
-        buildConfigField("String", "GIT_REPO", "\"ola-s1-mods\"")
+        buildConfigField("String", "GIT_OWNER", "\"lorddaku778\"")
+        buildConfigField("String", "GIT_REPO", "\"s1mods-live\"")
     }
 
     buildTypes {
