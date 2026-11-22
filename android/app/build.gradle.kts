@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.lorddaku.s1mods"
+    namespace = "com.asjohn720.s1mods"
     compileSdk {
         version = release(37) {
             minorApiLevel = 1
