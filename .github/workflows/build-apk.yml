@@ -1,34 +1,97 @@
-name: Build APK
-on:
-  push:
-  workflow_dispatch:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-      - name: Accept Android SDK licenses
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Build Open Boot APK
-        working-directory: android
-        run: |
-          chmod +x gradlew
-          ./gradlew :openboot:assembleDebug --stacktrace
-      - name: Bundle Open Boot into S1Mods
-        run: cp android/openboot/build/outputs/apk/debug/openboot-debug.apk android/app/src/main/assets/openboot.apk
-      - name: Build S1Mods APK
-        working-directory: android
-        run: ./gradlew :app:assembleDebug --stacktrace
-      - uses: actions/upload-artifact@v4
-        with:
-          name: S1Mods-live-mirror-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: OpenBoot-apk
-          path: android/openboot/build/outputs/apk/debug/openboot-debug.apk
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
+}
+
+android {
+    namespace = "com.asjohn720.s1mods"
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 1
+        }
+    }
+
+    defaultConfig {
+        applicationId = "com.lorddaku.s1mods"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 5
+        versionName = "1.2"
+
+        vectorDrawables.useSupportLibrary = true
+
+        // GitHub repo that holds the public Releases used for update checks.
+        buildConfigField("String", "GIT_OWNER", "\"lorddaku778\"")
+        buildConfigField("String", "GIT_REPO", "\"s1mods-live\"")
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
+            isMinifyEnabled = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/INDEX.LIST",
+                "META-INF/io.netty.versions.properties",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/license.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/notice.txt"
+            )
+        }
+    }
+}
+
+dependencies {
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.activity.compose)
+
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
+
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
+
+    // Embedded Pure Kotlin ADB Client
+    implementation(libs.dadb)
+    // Binary streaming (live mirror / touch) uses dadb's okio streams directly.
+    implementation(libs.okio)
+
+    // Root gRPC Client for Scooter Port 50005
+    implementation(libs.grpc.okhttp)
+    implementation(libs.grpc.stub)
+
+    debugImplementation(libs.androidx.compose.ui.tooling)
+}
